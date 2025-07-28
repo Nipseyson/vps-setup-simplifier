@@ -36,27 +36,39 @@ ufw --force enable
 echo "✅ UFW включён и настроен"
 
 # 3. Настройка SSH-ключа
-echo "🔐 Установка SSH-ключа..."
+echo "🔐 Установка SSH-ключа в /root/.ssh..."
 
-mkdir -p ~/.ssh
-chmod 700 ~/.ssh
-echo "$ssh_key" > ~/.ssh/authorized_keys
-chmod 600 ~/.ssh/authorized_keys
+mkdir -p /root/.ssh
+chmod 700 /root/.ssh
+echo "$ssh_key" > /root/.ssh/authorized_keys
+chmod 600 /root/.ssh/authorized_keys
+echo "✅ Ключ установлен для пользователя root"
 
 # 4. Конфигурируем sshd
 echo "🔧 Обновление sshd_config..."
 
 sshd_config="/etc/ssh/sshd_config"
 
-sed -i "s/^#Port .*/Port $ssh_port/" "$sshd_config"
-sed -i "s/^Port .*/Port $ssh_port/" "$sshd_config"
+# Установка порта
+if grep -q "^#\?Port " "$sshd_config"; then
+  sed -i "s/^#\?Port .*/Port $ssh_port/" "$sshd_config"
+else
+  echo "Port $ssh_port" >> "$sshd_config"
+fi
 
-sed -i 's/^#PasswordAuthentication.*/PasswordAuthentication no/' "$sshd_config"
-sed -i 's/^PasswordAuthentication.*/PasswordAuthentication no/' "$sshd_config"
+# Отключение пароля
+if grep -q "^#\?PasswordAuthentication " "$sshd_config"; then
+  sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication no/' "$sshd_config"
+else
+  echo "PasswordAuthentication no" >> "$sshd_config"
+fi
 
-# Убедимся, что PermitRootLogin не стоит на yes
-sed -i 's/^#PermitRootLogin.*/PermitRootLogin prohibit-password/' "$sshd_config"
-sed -i 's/^PermitRootLogin.*/PermitRootLogin prohibit-password/' "$sshd_config"
+# PermitRootLogin (против "yes")
+if grep -q "^#\?PermitRootLogin " "$sshd_config"; then
+  sed -i 's/^#\?PermitRootLogin .*/PermitRootLogin prohibit-password/' "$sshd_config"
+else
+  echo "PermitRootLogin prohibit-password" >> "$sshd_config"
+fi
 
 # Перезапуск ssh
 echo "🔄 Перезапуск sshd..."
@@ -65,20 +77,31 @@ systemctl restart sshd
 # 5. Крон-задача на ежедневную перезагрузку
 echo "📅 Настройка cron-задачи на перезагрузку в 05:00 с задержкой до 10 минут..."
 
-cron_line='0 5 * * * sleep $((RANDOM % 600)) && /sbin/reboot'
-
-# Экранируем $ для crontab (иначе переменная подставится прямо сейчас)
 escaped_cron_line='0 5 * * * sleep $((RANDOM \% 600)) && /sbin/reboot'
 
-# Добавляем строку, избегая дублирования
-(crontab -l 2>/dev/null | grep -v 'sleep.*reboot'; echo "$escaped_cron_line") | crontab -
+# Удаляем старые задачи с reboot, если были, и добавляем новую
+(crontab -l 2>/dev/null | grep -v '/sbin/reboot'; echo "$escaped_cron_line") | crontab -
 
-echo -e "\n✅ Задача добавлена: reboot с задержкой до 10 минут в 05:00"
+echo "✅ Cron задача добавлена"
 
-# Проверим, не существует ли уже такая задача
-(crontab -l 2>/dev/null | grep -v '/sbin/reboot'; echo "$cron_line") | crontab -
+# 6. Отключение IPv6 по запросу
+read -rp "❓ Отключить IPv6? [y/N]: " disable_ipv6
+disable_ipv6=${disable_ipv6,,} # в нижний регистр
 
-echo -e "\n✅ Задача добавлена в crontab: ежедневная перезагрузка в 05:00"
+if [[ "$disable_ipv6" == "y" || "$disable_ipv6" == "yes" ]]; then
+    echo "🚫 Отключаем IPv6..."
+
+    cat <<EOF > /etc/sysctl.d/99-disable-ipv6.conf
+net.ipv6.conf.all.disable_ipv6 = 1
+net.ipv6.conf.default.disable_ipv6 = 1
+net.ipv6.conf.lo.disable_ipv6 = 1
+EOF
+
+    sysctl --system > /dev/null
+    echo "✅ IPv6 отключён"
+else
+    echo "ℹ️ IPv6 оставлен включённым"
+fi
 
 # Финальное сообщение
 echo -e "\n🎉 Готово! SSH работает на порту $ssh_port, вход разрешён только с IP:"
