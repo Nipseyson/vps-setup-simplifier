@@ -72,7 +72,14 @@ fi
 
 # Перезапуск ssh
 echo "🔄 Перезапуск sshd..."
-systemctl restart sshd
+if systemctl list-units --type=service | grep -q sshd.service; then
+  systemctl restart sshd
+elif systemctl list-units --type=service | grep -q ssh.service; then
+  systemctl restart ssh
+else
+  echo "⚠️ Не удалось найти службу SSH (sshd/ssh), перезапуск не выполнен"
+fi
+
 
 # 5. Крон-задача на ежедневную перезагрузку
 echo "📅 Настройка cron-задачи на перезагрузку в 05:00 с задержкой до 10 минут..."
