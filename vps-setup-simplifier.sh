@@ -26,6 +26,7 @@ ufw default allow outgoing
 # Разрешённые IP
 for ip in "${allowed_ips[@]}"; do
   ufw allow from "$ip" to any port "$ssh_port" proto tcp
+  ufw allow from "$ip" to any port 8443 proto tcp
 done
 
 # Открываем 80 и 443 для всех
